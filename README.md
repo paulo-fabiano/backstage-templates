@@ -37,3 +37,11 @@ na lista spec.targets do catalog-info.yaml. Atualize a Location no catálogo ap�
 
 Use /create no Backstage para executar o template. Confira o responsável do template
 (spec.owner) caso publique em outra organização.
+
+## Ambiente de teste para uma aplicação existente
+
+O template **Criar ambiente de teste Node.js** dispara o workflow
+`.github/workflows/deploy-node-test.yaml` deste repositório. A pipeline constrói
+a imagem da aplicação e a envia via SSH para um servidor separado.
+
+Consulte [a configuração e o uso](templates/node-test-environment/README.md).

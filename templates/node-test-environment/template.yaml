@@ -1,0 +1,71 @@
+apiVersion: scaffolder.backstage.io/v1beta3
+kind: Template
+metadata:
+  name: deploy-node-test-environment
+  title: Criar ambiente de teste Node.js
+  description: Executa uma aplicação existente em um servidor de testes via GitHub Actions e SSH.
+spec:
+  owner: user:default/paulo-fabiano
+  type: service
+  parameters:
+    - title: Aplicação existente
+      required: [sourceRepository, sourceRef]
+      properties:
+        sourceRepository:
+          title: Repositório da aplicação
+          description: Informe organizacao/repositorio do GitHub. Deve conter Dockerfile na raiz.
+          type: string
+          pattern: '^[A-Za-z0-9][A-Za-z0-9-]*/[A-Za-z0-9_.-]+$'
+        sourceRef:
+          title: Branch, tag ou commit
+          type: string
+          default: main
+          minLength: 1
+    - title: Ambiente no servidor de testes
+      required: [environmentName, hostPort, containerPort, postgres]
+      properties:
+        environmentName:
+          title: Nome do ambiente
+          description: Reutilizar o nome atualiza o ambiente existente. Use um nome exclusivo por aplicação.
+          type: string
+          pattern: '^[a-z][a-z0-9-]{0,39}$'
+        hostPort:
+          title: Porta disponível no servidor
+          type: integer
+          default: 3001
+          minimum: 1024
+          maximum: 65535
+        containerPort:
+          title: Porta interna da aplicação
+          type: integer
+          default: 3000
+          minimum: 1
+          maximum: 65535
+        postgres:
+          title: Criar PostgreSQL para este ambiente?
+          type: string
+          default: 'false'
+          enum: ['false', 'true']
+          enumNames: ['Não', 'Sim']
+  steps:
+    - id: deploy
+      name: Solicitar criação do ambiente
+      action: github:actions:dispatch
+      input:
+        repoUrl: github.com?owner=paulo-fabiano&repo=backstage-templates
+        workflowId: deploy-node-test.yaml
+        branchOrTagName: main
+        workflowInputs:
+          source_repository: ${{ parameters.sourceRepository }}
+          source_ref: ${{ parameters.sourceRef }}
+          environment_name: ${{ parameters.environmentName }}
+          host_port: '${{ parameters.hostPort }}'
+          container_port: '${{ parameters.containerPort }}'
+          postgres: ${{ parameters.postgres }}
+  output:
+    links:
+      - title: Acompanhar deploy (aguarde a conclusão do workflow)
+        url: https://github.com/paulo-fabiano/backstage-templates/actions/workflows/deploy-node-test.yaml
+    text:
+      - title: Próximo passo
+        content: 'A solicitação foi enviada. A conclusão no Backstage não significa que o deploy terminou. Consulte o workflow; após sucesso, acesse http://HOST_DO_SERVIDOR:${{ parameters.hostPort }}.'

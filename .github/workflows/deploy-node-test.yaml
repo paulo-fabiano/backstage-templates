@@ -1,0 +1,120 @@
+name: Criar ambiente de teste Node.js
+run-name: Deploy ${{ inputs.environment_name }} — ${{ inputs.source_repository }}@${{ inputs.source_ref }}
+on:
+  workflow_dispatch:
+    inputs:
+      source_repository:
+        description: Repositório da aplicação (organizacao/repositorio)
+        required: true
+        type: string
+      source_ref:
+        description: Branch, tag ou commit da aplicação
+        required: true
+        default: main
+        type: string
+      environment_name:
+        description: Nome exclusivo do ambiente
+        required: true
+        type: string
+      host_port:
+        description: Porta disponível no servidor (1024–65535)
+        required: true
+        default: '3001'
+        type: string
+      container_port:
+        description: Porta interna da aplicação
+        required: true
+        default: '3000'
+        type: string
+      postgres:
+        description: Criar PostgreSQL
+        required: true
+        default: 'false'
+        type: choice
+        options: ['false', 'true']
+permissions:
+  contents: read
+concurrency:
+  group: test-server-deploy
+  cancel-in-progress: false
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: test-server
+    env:
+      ENVIRONMENT_NAME: ${{ inputs.environment_name }}
+      SOURCE_REPOSITORY: ${{ inputs.source_repository }}
+      HOST_PORT: ${{ inputs.host_port }}
+      CONTAINER_PORT: ${{ inputs.container_port }}
+      POSTGRES: ${{ inputs.postgres }}
+    steps:
+      - name: Baixar scripts de infraestrutura
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          path: infrastructure
+      - name: Validar parâmetros
+        shell: bash
+        run: |
+          bash infrastructure/scripts/validate-test-environment.sh
+      - name: Baixar aplicação
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.source_repository }}
+          ref: ${{ inputs.source_ref }}
+          token: ${{ secrets.SOURCE_REPO_TOKEN || github.token }}
+          persist-credentials: false
+          path: application
+      - name: Construir imagem
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f application/Dockerfile
+          image="backstage-test/$ENVIRONMENT_NAME:$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          docker build --tag "$image" application
+          echo "DEPLOY_IMAGE=$image" >> "$GITHUB_ENV"
+      - name: Configurar SSH
+        shell: bash
+        env:
+          SSH_HOST: ${{ secrets.TEST_SSH_HOST }}
+          SSH_USER: ${{ secrets.TEST_SSH_USER }}
+          SSH_PORT: ${{ secrets.TEST_SSH_PORT || '22' }}
+          SSH_KEY: ${{ secrets.TEST_SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.TEST_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          [[ "$SSH_HOST" =~ ^[a-zA-Z0-9][a-zA-Z0-9.-]*$ ]]
+          [[ "$SSH_USER" =~ ^[a-z_][a-z0-9_-]*$ ]]
+          [[ "$SSH_PORT" =~ ^[0-9]{1,5}$ ]] && ((10#$SSH_PORT >= 1 && 10#$SSH_PORT <= 65535))
+          test -n "$SSH_KEY" && test -n "$SSH_KNOWN_HOSTS"
+          umask 077
+          mkdir -p ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/test_server_key
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          cat > ~/.ssh/config <<CONFIG
+          Host test-server
+            HostName $SSH_HOST
+            User $SSH_USER
+            Port $SSH_PORT
+            IdentityFile ~/.ssh/test_server_key
+            IdentitiesOnly yes
+            StrictHostKeyChecking yes
+            BatchMode yes
+          CONFIG
+      - name: Enviar imagem e iniciar ambiente
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker save "$DEPLOY_IMAGE" | gzip | ssh test-server 'bash -o pipefail -c "gunzip | docker load"'
+          ssh test-server bash -s -- "$ENVIRONMENT_NAME" "$HOST_PORT" "$CONTAINER_PORT" "$POSTGRES" "$DEPLOY_IMAGE" < infrastructure/scripts/deploy-test-environment.sh
+          {
+            echo "### Ambiente: $ENVIRONMENT_NAME"
+            echo "Deploy concluído. Acesse http://HOST_DO_SERVIDOR:$HOST_PORT usando o endereço do servidor configurado."
+            echo "Origem: $SOURCE_REPOSITORY"
+            echo "Os serviços iniciaram; aplicações sem HEALTHCHECK ainda precisam de validação HTTP."
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Remover chave SSH do runner
+        if: always()
+        shell: bash
+        run: rm -f ~/.ssh/test_server_key
