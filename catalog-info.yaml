@@ -1,0 +1,9 @@
+apiVersion: backstage.io/v1alpha1
+kind: Location
+metadata:
+  name: backstage-templates
+  description: Templates de aplicações
+spec:
+  type: url
+  targets:
+    - ./templates/node-postgres/template.yaml

@@ -1,0 +1,111 @@
+apiVersion: scaffolder.backstage.io/v1beta3
+kind: Template
+
+metadata:
+  name: create-node-postgres
+  title: Criar Node.js + PostgreSQL
+  description: Cria um repositório com aplicação Node.js, PostgreSQL e Docker Compose
+
+spec:
+  owner: user:default/paulo-fabiano
+  type: service
+
+  parameters:
+
+    - title: Aplicação
+
+      required:
+        - appName
+        - appPort
+
+      properties:
+
+        appName:
+          title: Nome da aplicação
+          type: string
+          description: Nome da aplicação
+          pattern: '^[a-z0-9][a-z0-9-]*$'
+          ui:autofocus: true
+
+        appPort:
+          title: Porta da aplicação
+          type: integer
+          default: 3000
+          minimum: 1024
+          maximum: 65535
+
+    - title: PostgreSQL
+
+      required:
+        - databaseName
+        - databaseUser
+
+      properties:
+
+        databaseName:
+          title: Nome do banco
+          type: string
+          default: appdb
+          pattern: '^[a-zA-Z0-9_]+$'
+
+        databaseUser:
+          title: Usuário do banco
+          type: string
+          default: appuser
+          pattern: '^[a-zA-Z0-9_]+$'
+
+    - title: Repositório e responsável
+      required: [repoUrl, owner]
+      properties:
+        repoUrl:
+          title: Repositório de destino
+          type: string
+          ui:field: RepoUrlPicker
+          ui:options:
+            allowedHosts: [github.com]
+        owner:
+          title: Responsável
+          type: string
+          ui:field: OwnerPicker
+          ui:options:
+            allowedKinds: [User, Group]
+
+  steps:
+
+    - id: generate
+      name: Gerar aplicação
+      action: fetch:template
+
+      input:
+        url: ./skeleton
+
+        values:
+          owner: ${{ parameters.owner }}
+          appName: ${{ parameters.appName }}
+          appPort: ${{ parameters.appPort }}
+          databaseName: ${{ parameters.databaseName }}
+          databaseUser: ${{ parameters.databaseUser }}
+
+    - id: publish
+      name: Criar repositório no GitHub
+      action: publish:github
+      input:
+        repoUrl: ${{ parameters.repoUrl }}
+        description: Aplicação Node.js com PostgreSQL criada pelo Backstage
+        defaultBranch: main
+        repoVisibility: private
+
+    - id: register
+      name: Registrar aplicação no catálogo
+      action: catalog:register
+      input:
+        repoContentsUrl: ${{ steps.publish.output.repoContentsUrl }}
+        catalogInfoPath: /catalog-info.yaml
+
+  output:
+    links:
+      - title: Repositório
+        url: ${{ steps.publish.output.remoteUrl }}
+      - title: Abrir no catálogo
+        icon: catalog
+        entityRef: ${{ steps.register.output.entityRef }}

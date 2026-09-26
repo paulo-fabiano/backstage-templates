@@ -1,0 +1,44 @@
+services:
+
+  postgres:
+    image: postgres:17-alpine
+    container_name: ${{ values.appName }}-postgres
+    restart: unless-stopped
+
+    environment:
+      POSTGRES_DB: ${{ values.databaseName }}
+      POSTGRES_USER: ${{ values.databaseUser }}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Defina POSTGRES_PASSWORD no arquivo .env}
+
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready -U ${{ values.databaseUser }} -d ${{ values.databaseName }}
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build: .
+    container_name: ${{ values.appName }}
+    restart: unless-stopped
+
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: ${{ values.databaseName }}
+      DB_USER: ${{ values.databaseUser }}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:?Defina POSTGRES_PASSWORD no arquivo .env}
+
+    ports:
+      - "${{ values.appPort }}:3000"
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
